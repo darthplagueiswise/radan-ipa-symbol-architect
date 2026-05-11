@@ -1,17 +1,69 @@
 # Radan IPA Symbol Architect
 
-Radan IPA Symbol Architect is a Claude Code skill for **iOS IPA / Mach-O / Objective-C / Swift symbol architecture analysis**.
+Radan IPA Symbol Architect is a portable agent skill/toolkit for **iOS IPA / Mach-O / Objective-C / Swift symbol architecture analysis**.
 
-This fork is intentionally narrower than the original generic iOS reverse-engineering skill. Its job is to help with tweak and binary-analysis workflows where the important output is not “find every API endpoint”, but:
+It is meant for both **OpenAI Codex / ChatGPT Codex** and **Claude Code**. This repo is not just a Claude Code skill.
+
+Its job is to help with tweak and binary-analysis workflows where the important output is not “find every API endpoint”, but:
 
 - which binary/framework owns a selector, class, symbol, string, or MobileConfig getter;
 - where a symbol lives in VM address and file offset terms;
 - what the first bytes/prologue are before a hook or offline patch is considered;
-- which selectors have selrefs and likely callsites;
+- which selectors have selrefs and likely callsite anchors;
 - which Objective-C/Swift metadata can be used as stable anchors;
 - which findings are verified versus guessed.
 
 The default target profile is the RyukGram / Instagram iOS workflow, but the skill works with any IPA, `.app`, Mach-O executable, `.dylib`, or `.framework`.
+
+## Agent compatibility
+
+### OpenAI Codex / ChatGPT Codex
+
+Codex support is provided through:
+
+```text
+AGENTS.md
+.agents/skills/radan-ipa-symbol-architect/SKILL.md
+.agents/skills/radan-ipa-symbol-architect/agents/openai.yaml
+.agents/skills/radan-ipa-symbol-architect/scripts/run-radan.sh
+```
+
+Codex can read `AGENTS.md` as project instructions and discover the skill from `.agents/skills/radan-ipa-symbol-architect/SKILL.md`.
+
+Manual Codex usage from the repository root:
+
+```bash
+bash skills/ios-reverse-engineering/scripts/radan-symbol-architect.sh /path/to/Instagram.ipa -o ./radan-out
+```
+
+Manual Codex usage from the skill wrapper directory:
+
+```bash
+bash .agents/skills/radan-ipa-symbol-architect/scripts/run-radan.sh /path/to/Instagram.ipa -o ./radan-out
+```
+
+### Claude Code
+
+Claude Code compatibility is provided through:
+
+```text
+commands/analyze-ipa-symbols.md
+skills/ios-reverse-engineering/SKILL.md
+```
+
+Claude command usage:
+
+```text
+/analyze-ipa-symbols /path/to/Instagram.ipa
+```
+
+### Plain shell / CI
+
+No agent runtime is required for the core analyzer:
+
+```bash
+bash skills/ios-reverse-engineering/scripts/radan-symbol-architect.sh /path/to/Instagram.ipa -o ./radan-out
+```
 
 ## What this skill optimizes for
 
@@ -50,15 +102,44 @@ The original upstream skill was broad and security-audit oriented. This fork kee
 
 Those workflows can still be run with the inherited scripts if needed, but the default Radan workflow is symbol/callsite/patch-validation oriented.
 
-## Install
+## Install for Codex
 
-Clone the repository into your Claude Code skills area or add it as a skill, depending on your local Claude Code setup:
+Inside a Codex project, either keep this repository as the project root or copy the skill folder into your project:
+
+```text
+<project>/.agents/skills/radan-ipa-symbol-architect/
+```
+
+The skill folder must contain at least:
+
+```text
+SKILL.md
+agents/openai.yaml
+scripts/run-radan.sh
+```
+
+The runner expects the canonical scripts to exist at repository root under:
+
+```text
+skills/ios-reverse-engineering/scripts/
+```
+
+For standalone reuse in another repo, copy both:
+
+```text
+.agents/skills/radan-ipa-symbol-architect/
+skills/ios-reverse-engineering/scripts/
+```
+
+## Install for Claude Code
+
+Clone the repository into your Claude Code skills area or add it as a project skill, depending on your local Claude Code setup:
 
 ```bash
 git clone https://github.com/darthplagueiswise/radan-ipa-symbol-architect.git
 ```
 
-The main skill file is:
+The canonical skill file is:
 
 ```text
 skills/ios-reverse-engineering/SKILL.md
@@ -72,28 +153,29 @@ Required for the basic workflow:
 
 ```bash
 python3
+bash
 unzip
 file
 strings
-nm
-otool
 ```
 
 Strongly recommended:
 
 ```bash
-brew install blacktop/tap/ipsw
-pip install lief
-r2pm -ci r2frida
+nm
+otool
+ipsw
+swift-demangle
 ```
 
 Optional but useful:
 
 ```bash
+pip install lief k2l
+r2pm -ci r2frida
 radare2
 rizin
 Ghidra headless
-swift-demangle
 class-dump / classdump-dyld
 ```
 
@@ -101,13 +183,7 @@ On Linux/WSL2, basic static analysis works for already extracted files. macOS gi
 
 ## Main command
 
-Use the new command:
-
-```text
-/analyze-ipa-symbols /path/to/Instagram.ipa
-```
-
-or run the script directly:
+Run:
 
 ```bash
 bash skills/ios-reverse-engineering/scripts/radan-symbol-architect.sh /path/to/Instagram.ipa -o ./radan-out
@@ -121,6 +197,18 @@ bash skills/ios-reverse-engineering/scripts/radan-symbol-architect.sh /path/to/I
   --pattern _IGMobileConfigBooleanValueForInternalUse \
   --pattern _MCIMobileConfigGetBoolean \
   --pattern openWithConfig:onViewController:userSession:
+```
+
+Limit framework scan during heavy IPA analysis:
+
+```bash
+bash skills/ios-reverse-engineering/scripts/radan-symbol-architect.sh /path/to/Instagram.ipa -o ./radan-out --max-frameworks 5
+```
+
+Analyze only one framework:
+
+```bash
+bash skills/ios-reverse-engineering/scripts/radan-symbol-architect.sh Payload/Instagram.app/Frameworks/FBSharedFramework.framework -o ./radan-fbshared
 ```
 
 ## Output contract
@@ -195,7 +283,13 @@ When the target is Instagram, RyukGram, MobileConfig, Dogfooding, Direct Notes, 
 
 ## Current state
 
-This fork has been repointed from a broad iOS security skill into a symbol-architecture skill. The inherited broad scripts remain in place for compatibility, but the intended workflow is now `/analyze-ipa-symbols` and `radan-symbol-architect.sh`.
+This fork has been repointed from a broad iOS security skill into a symbol-architecture skill. The inherited broad scripts remain in place for compatibility, but the intended workflow is now:
+
+```text
+OpenAI Codex: .agents/skills/radan-ipa-symbol-architect/SKILL.md
+Claude Code: commands/analyze-ipa-symbols.md + skills/ios-reverse-engineering/SKILL.md
+CLI/CI: skills/ios-reverse-engineering/scripts/radan-symbol-architect.sh
+```
 
 ## License
 
