@@ -1,0 +1,34 @@
+interface:
+  display_name: Radan IPA Symbol Architect
+  short_description: IPA/Mach-O symbols, selectors, VM/file offsets, first bytes, and RyukGram target evidence
+  default_prompt: Analyze the supplied IPA, app, Mach-O, dylib, or framework with Radan. Produce verified symbol/selector/string evidence, VM addresses, file offsets, first bytes, unresolved items, and safe next steps.
+dependencies:
+  tools:
+    - type: cli
+      value: python3
+      description: Required for the pure Python Mach-O analyzer
+    - type: cli
+      value: bash
+      description: Required for the Radan shell runner
+    - type: cli
+      value: unzip
+      description: Required for IPA extraction
+    - type: cli
+      value: file
+      description: Used for binary identification
+    - type: cli
+      value: strings
+      description: Used for raw string extraction
+    - type: cli
+      value: nm
+      description: Optional symbol table extraction
+    - type: cli
+      value: otool
+      description: Optional Mach-O headers and load-command extraction on macOS
+    - type: cli
+      value: ipsw
+      description: Optional but recommended for class-dump and Mach-O iOS research
+policy:
+  allow_implicit_invocation: true
+  products:
+    - codex
