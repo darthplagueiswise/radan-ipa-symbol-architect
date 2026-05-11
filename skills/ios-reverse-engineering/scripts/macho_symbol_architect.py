@@ -12,6 +12,8 @@ LC_SYMTAB=0x2
 CPU_ARM64=0x0100000c
 CPU_X86_64=0x01000007
 
+MC_PARAM_PREFIXES=("_ig_","_ctd_","_biig_","_igd_","_mwb_","_mwa_","_msgc_","_mci_","_mcd_","_meta_")
+
 @dataclass
 class Section:
     seg:str; name:str; addr:int; size:int; offset:int; flags:int
@@ -28,6 +30,12 @@ def cpu_name(c:int)->str:
 
 def hx(n:Optional[int])->Optional[str]:
     return None if n is None else f'0x{n:x}'
+
+def hx16(n:Optional[int])->Optional[str]:
+    return None if n is None else f'0x{n:016x}'
+
+def hx14(n:Optional[int])->Optional[str]:
+    return None if n is None else f'0x{n:014x}'
 
 def choose_slice(raw:bytes, preferred='arm64')->Tuple[bytes,dict]:
     le=struct.unpack_from('<I',raw,0)[0]
@@ -97,6 +105,24 @@ def bhex(data:bytes,off:Optional[int],n:int)->Optional[str]:
     if off is None or off<0 or off>=len(data): return None
     return data[off:off+n].hex(' ')
 
+def decode_mc_param(name:str, section:Optional[str], first8:Optional[str]):
+    if not name.startswith(MC_PARAM_PREFIXES): return {}
+    if section and '__const' not in section: return {}
+    if not first8: return {}
+    clean=first8.replace(' ','').replace('0x','')
+    if len(clean)<16: return {}
+    try:
+        value=int.from_bytes(bytes.fromhex(clean[:16]),'little')
+    except Exception:
+        return {}
+    return {
+        'mc_param': True,
+        'mc_stable_id_hex': hx16(value),
+        'mc_stable_id_normalized_hex': hx14(value & 0x00ffffffffffffff),
+        'mc_low32_hex': f'0x{(value & 0xffffffff):08x}',
+        'mc_high32_hex': f'0x{((value >> 32) & 0xffffffff):08x}',
+    }
+
 def parse_symbols(data:bytes,symtab,segs):
     out=[]
     if not symtab: return out
@@ -109,7 +135,10 @@ def parse_symbols(data:bytes,symtab,segs):
         name=cstr(data[stroff+n_strx:strend])
         if not name: continue
         fileoff,seg,sec=vm_to_file(n_value,segs)
-        out.append({'name':name,'vmaddr':hx(n_value),'fileoff':hx(fileoff),'segment':seg,'section':sec,'type':hex(n_type),'sect':n_sect,'desc':n_desc,'first_8_bytes':bhex(data,fileoff,8),'first_16_bytes':bhex(data,fileoff,16)})
+        first8=bhex(data,fileoff,8)
+        rec={'index':i,'name':name,'vmaddr':hx(n_value),'fileoff':hx(fileoff),'segment':seg,'section':sec,'type':hex(n_type),'kind':'symbol','sect':n_sect,'desc':n_desc,'external':bool(n_type & 0x01),'private_extern':bool(n_type & 0x10),'first_8_bytes':first8,'first_16_bytes':bhex(data,fileoff,16)}
+        rec.update(decode_mc_param(name, sec, first8))
+        out.append(rec)
     return out
 
 def sec_bytes(data:bytes,sec:Section)->bytes:
@@ -165,7 +194,7 @@ def find_matches(patterns,symbols,selreport,strings,objc):
     for pat in patterns:
         for s in symbols:
             if pat in s['name']:
-                m=dict(s); m.update({'pattern':pat,'kind':'symbol','text':s['name'],'confidence':'symbol-table'}); out.append(m)
+                m=dict(s); m.update({'pattern':pat,'text':s['name'],'confidence':'symbol-table'}); out.append(m)
         for item in selreport.get('selectors',[]):
             if pat in item.get('string',''):
                 out.append({'pattern':pat,'kind':'objc_selector_string','text':item['string'],'vmaddr':item.get('vmaddr'),'fileoff':item.get('fileoff'),'segment':item.get('segment'),'section':item.get('section'),'confidence':'objc-methname'})
@@ -190,12 +219,13 @@ def write_md(path,binary,header,matches,patterns):
         f.write(f'- Binary: `{binary}`\n- Architecture: `{header.get("arch")}`\n- Patterns: `{len(patterns)}`\n- Matches: `{len(matches)}`\n\n')
         if not matches:
             f.write('No target patterns matched in parsed symbol/selector/string data.\n'); return
-        f.write('| Pattern | Kind | Text | VMAddr | FileOff | First 8 bytes | Confidence |\n|---|---|---|---:|---:|---|---|\n')
+        f.write('| Pattern | Kind | Text | VMAddr | FileOff | Stable ID | First 8 bytes | Confidence |\n|---|---|---|---:|---:|---:|---|---|\n')
         for m in matches:
             txt=str(m.get('text','')).replace('|','\\|')[:140]
             vm=m.get('vmaddr') or m.get('selref_vmaddr') or ''
             fo=m.get('fileoff') or m.get('selref_fileoff') or ''
-            f.write(f"| `{m.get('pattern','')}` | `{m.get('kind','')}` | `{txt}` | `{vm}` | `{fo}` | `{m.get('first_8_bytes','') or ''}` | `{m.get('confidence','')}` |\n")
+            sid=m.get('mc_stable_id_hex') or ''
+            f.write(f"| `{m.get('pattern','')}` | `{m.get('kind','')}` | `{txt}` | `{vm}` | `{fo}` | `{sid}` | `{m.get('first_8_bytes','') or ''}` | `{m.get('confidence','')}` |\n")
 
 def main():
     ap=argparse.ArgumentParser()
