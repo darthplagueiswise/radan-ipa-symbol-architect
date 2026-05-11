@@ -1,270 +1,202 @@
-# iOS Reverse Engineering Skill for Claude Code
+# Radan IPA Symbol Architect
 
-A comprehensive [Claude Code skill](https://docs.anthropic.com/en/docs/claude-code/skills) that enables Claude to extract, analyze, and reverse engineer iOS applications. It processes IPA files, .app bundles, Mach-O binaries, dynamic libraries, and frameworks — producing structured documentation of APIs, security findings, embedded secrets, SDK inventories, and protection assessments.
+Radan IPA Symbol Architect is a Claude Code skill for **iOS IPA / Mach-O / Objective-C / Swift symbol architecture analysis**.
 
-## Features
+This fork is intentionally narrower than the original generic iOS reverse-engineering skill. Its job is to help with tweak and binary-analysis workflows where the important output is not “find every API endpoint”, but:
 
-- **IPA/App Extraction** — Unpack IPA archives and .app bundles, dump Objective-C/Swift class headers via `ipsw class-dump`, extract Info.plist, entitlements, embedded frameworks, and string constants
-- **API Endpoint Discovery** — Find HTTP endpoints across URLSession, Alamofire, Moya, AFNetworking, GraphQL, and WebSocket patterns
-- **Call Flow Tracing** — Follow execution paths from ViewControllers through ViewModels/Presenters down to the networking layer
-- **Security Auditing** — Scan for ATS exceptions, certificate pinning issues, weak crypto, keychain misuse, jailbreak detection, and debug artifacts
-- **Cloud Credential Scanning** — Deep-scan for leaked API keys and secrets from Firebase, AWS, GCP, Azure, Stripe, Twilio, SendGrid, and more — with LLM-assisted risk classification
-- **Deep Binary Reversing** — Decompile functions, trace cross-references, and analyze crypto/auth/network code using radare2, rizin, or Ghidra headless
-- **SDK Fingerprinting** — Identify all embedded third-party SDKs, detect versions, and cross-reference with known CVEs
-- **Protection Detection** — Detect obfuscation tools, anti-debugging, dylib injection prevention, integrity checks, jailbreak detection, and FairPlay DRM encryption
+- which binary/framework owns a selector, class, symbol, string, or MobileConfig getter;
+- where a symbol lives in VM address and file offset terms;
+- what the first bytes/prologue are before a hook or offline patch is considered;
+- which selectors have selrefs and likely callsites;
+- which Objective-C/Swift metadata can be used as stable anchors;
+- which findings are verified versus guessed.
 
-## Requirements
+The default target profile is the RyukGram / Instagram iOS workflow, but the skill works with any IPA, `.app`, Mach-O executable, `.dylib`, or `.framework`.
 
-- **macOS** with Xcode Command Line Tools (provides `otool`, `strings`, `plutil`, `codesign`)
-- **[ipsw](https://github.com/blacktop/ipsw)** — Required. Provides class-dump and Mach-O analysis (`brew install blacktop/tap/ipsw`)
-- **[radare2](https://github.com/radareorg/radare2)** or **[rizin](https://github.com/rizinorg/rizin)** — Recommended for deep binary analysis
-- **[Ghidra](https://ghidra-sre.org/)** — Optional. Enables advanced headless decompilation with included Java scripts
+## What this skill optimizes for
 
-> Linux is supported for static analysis of already-extracted files only.
+Use it when you need hard binary facts:
 
-The skill includes dependency check and auto-install scripts that handle setup automatically.
+- IPA extraction and app/framework inventory.
+- Main executable and embedded framework discovery.
+- Mach-O segment / section mapping.
+- VM address to file offset mapping.
+- Symbol table exports/imports where available.
+- First bytes for target symbols.
+- Objective-C class, selector, method, selref and string-section extraction.
+- Swift symbol demangling when `swift-demangle` exists.
+- Targeted reports for selectors and functions such as:
+  - `_IGMobileConfigBooleanValueForInternalUse`
+  - `_MCIMobileConfigGetBoolean`
+  - `_EasyGatingPlatformGetBoolean`
+  - `_EasyGatingGetBoolean_Internal_DoNotUseOrMock`
+  - `openWithConfig:onViewController:userSession:`
+  - `notesDogfoodingSettingsOpenOnViewController:userSession:`
+  - `getBool`
+  - `getBool:withDefault:`
+  - `getBool:withOptions:`
+  - `getStableIdFromParamSpecifier:`
+  - `_getTranslatedSpecifier:`
 
-## Installation
+## What this skill deliberately de-prioritizes
 
-### As a Claude Code Skill (Recommended)
+The original upstream skill was broad and security-audit oriented. This fork keeps useful tooling ideas but does **not** treat these as primary goals:
 
-Add this repository as a skill in your Claude Code project:
+- cloud credential scanning;
+- generic endpoint inventory;
+- CVE reporting;
+- broad “security score” reports;
+- speculative feature naming.
 
-```bash
-claude mcp add-skill ios-reverse-engineering https://github.com/<owner>/iOS-claude-skill.git
-```
+Those workflows can still be run with the inherited scripts if needed, but the default Radan workflow is symbol/callsite/patch-validation oriented.
 
-Or clone and add locally:
+## Install
 
-```bash
-git clone https://github.com/<owner>/iOS-claude-skill.git
-```
-
-Then reference the skill directory in your Claude Code configuration.
-
-### Verify Dependencies
-
-Once installed, Claude will automatically check and install dependencies when you first use the skill. You can also verify manually:
-
-```bash
-bash skills/ios-reverse-engineering/scripts/check-deps.sh
-```
-
-If anything is missing:
-
-```bash
-bash skills/ios-reverse-engineering/scripts/install-dep.sh <dependency>
-```
-
-## Usage
-
-### Quick Start with the `/extract-ipa` Command
-
-The skill provides a user-invocable slash command for the most common workflow:
-
-```
-/extract-ipa /path/to/MyApp.ipa
-```
-
-This will:
-1. Check and install required dependencies
-2. Extract the IPA and dump class headers
-3. Analyze the app structure (Info.plist, entitlements, frameworks, architecture pattern)
-4. Present a summary and offer next steps
-
-### Supported Input Formats
-
-| Format | Description |
-|---|---|
-| `.ipa` | iOS App Store package (ZIP archive containing `Payload/*.app`) |
-| `.app` | Application bundle directory |
-| Mach-O binary | Raw executable binary |
-| `.dylib` | Dynamic library |
-| `.framework` | Framework bundle |
-
-### Extraction Options
+Clone the repository into your Claude Code skills area or add it as a skill, depending on your local Claude Code setup:
 
 ```bash
-# Basic extraction
-/extract-ipa MyApp.ipa
-
-# Custom output directory
-/extract-ipa MyApp.ipa -o ./my-analysis
-
-# Skip class-dump (faster, metadata only)
-/extract-ipa MyApp.ipa --no-classdump
-
-# Extract specific architecture from fat binaries
-/extract-ipa MyApp.ipa --thin arm64
-
-# Demangle Swift symbols
-/extract-ipa MyApp.ipa --swift-demangle
+git clone https://github.com/darthplagueiswise/radan-ipa-symbol-architect.git
 ```
 
-### Analysis Phases
+The main skill file is:
 
-After extraction, you can ask Claude to perform any of the following analyses. Each phase builds on the extracted output.
-
-#### 1. Structure Analysis
-> "Analyze the app structure"
-
-Reads Info.plist, entitlements, class-dump output, and embedded frameworks. Identifies the architecture pattern (MVC, MVVM, VIPER, Coordinator) and key classes.
-
-#### 2. Call Flow Tracing
-> "Trace the login flow from the UI to the network layer"
-
-Follows execution paths: ViewController -> ViewModel/Presenter -> Service/Repository -> API Client -> URLSession/Alamofire. Maps dependency injection and service creation patterns.
-
-#### 3. API Endpoint Extraction
-> "Find all API endpoints and document them"
-
-Searches for HTTP endpoints across all major networking libraries. Supports targeted searches:
-
-- `--urlsession` — URLSession patterns only
-- `--alamofire` — Alamofire/AFNetworking only
-- `--graphql` — GraphQL operations
-- `--websocket` — WebSocket connections
-- `--auth` — Authentication patterns
-- `--urls` — Hardcoded URLs
-- `--swift-concurrency` — Combine/async-await patterns
-- `--security` — Security-related patterns
-
-Produces structured documentation for each endpoint including method, path, parameters, headers, response type, and call chain.
-
-#### 4. Security Audit
-> "Run a security audit on this app"
-
-Scans for:
-- App Transport Security (ATS) exceptions
-- Disabled certificate pinning
-- Hardcoded secrets and API keys
-- Jailbreak detection mechanisms
-- Weak cryptography (MD5, ECB mode, hardcoded IVs)
-- Keychain misuse (`kSecAttrAccessibleAlways`)
-- Debug artifacts and staging URLs
-
-#### 5. Cloud Credential Scan
-> "Scan for leaked API keys and credentials"
-
-Deep-scans for credentials from 20+ cloud providers with targeted scan options:
-
-- `--firebase` / `--aws` / `--gcp` / `--azure` — Cloud providers
-- `--payments` — Stripe, PayPal, RevenueCat
-- `--messaging` — Twilio, SendGrid, Slack, OneSignal
-- `--analytics` — Sentry, Mixpanel, Amplitude, Segment
-- `--jwt` — JWT tokens
-- `--severity high` — Critical and high severity only
-
-Each finding is classified by the LLM: service type, client-safety assessment, blast radius, false positive likelihood, validation steps, and remediation.
-
-#### 6. Deep Binary Reversing
-> "Decompile the authentication functions"
-
-Uses radare2/rizin or Ghidra headless for binary-level analysis:
-
-- `--quick` — Functions + strings + imports only
-- `--secrets` — Focus on credential handling code
-- `--network` — Focus on networking code
-- `--crypto` — Focus on crypto implementations
-- `--auth` — Focus on authentication logic
-- `--decompile "sym.objc.AuthService.login"` — Decompile a specific function
-- `--decompile-pattern "auth\|login\|token"` — Decompile matching functions
-- `--xrefs "sym.imp.CCCrypt"` — Cross-references to a function
-- `--callgraph "sym.objc.NetworkManager.request"` — Call graph visualization
-- `--entropy` — Detect packing/encryption
-- `--tool ghidra` — Force Ghidra headless with Java analysis scripts
-
-Included Ghidra scripts:
-- `DecompileAllFunctions.java` — Full or security-targeted decompilation
-- `FindSecrets.java` — Credential and API key detection in decompiled code
-- `ExportAPICalls.java` — Network API symbol tracing
-- `ExportCryptoUsage.java` — Crypto function usage and weak pattern detection
-- `ExportStringXrefs.java` — String cross-references categorized by type
-
-#### 7. SDK Fingerprinting
-> "Identify all third-party SDKs"
-
-Detects embedded SDKs by framework names, linked libraries, class prefixes, SDK-specific strings, and symbols. Categories include: Networking, Analytics, Advertising, Authentication, Payments, Push Notifications, Maps, Social, Database, Cloud Storage, UI/UX, Security, Messaging, Crash Reporting, A/B Testing, Deep Linking, and AR/ML.
-
-Options:
-- `--check-cves` — Cross-reference detected SDK versions with known vulnerabilities
-- `--verbose` — Show match details
-- `--json` — JSON output for programmatic use
-
-#### 8. Protection Detection
-> "What protections does this app use?"
-
-Detects anti-tampering mechanisms and outputs a protection score (0-20):
-
-- `--obfuscation` — iXGuard, SwiftShield, OLLVM, Arxan, name obfuscation ratio, string encryption, control flow flattening
-- `--debugger` — ptrace, sysctl, timing checks, exception ports, SIGTRAP handlers
-- `--injection` — `__RESTRICT` segment, DYLD checks, library enumeration, Substrate/Frida detection
-- `--integrity` — Runtime code signing, binary hash checks, team ID verification, receipt validation
-- `--jailbreak` — File path checks, URL schemes, sandbox escape tests, environment variables
-- `--encryption` — FairPlay DRM detection
-
-| Score | Level |
-|---|---|
-| 15-20 | Heavily protected |
-| 10-14 | Well protected |
-| 5-9 | Moderately protected |
-| 1-4 | Lightly protected |
-| 0 | Unprotected |
-
-### Generating Reports
-
-Most analysis scripts support `--report <file.md>` to generate structured Markdown reports:
-
-```
-"Extract the app, scan for secrets, fingerprint SDKs, detect protections, and generate reports for everything"
+```text
+skills/ios-reverse-engineering/SKILL.md
 ```
 
-## Project Structure
+The skill metadata name is `radan-ipa-symbol-architect`.
 
-```
-iOS-claude-skill/
-├── commands/
-│   └── extract-ipa.md              # /extract-ipa slash command definition
-├── skills/
-│   └── ios-reverse-engineering/
-│       ├── SKILL.md                 # Main skill definition and workflow
-│       ├── scripts/
-│       │   ├── check-deps.sh        # Dependency checker
-│       │   ├── install-dep.sh       # Auto-installer for dependencies
-│       │   ├── extract-ipa.sh       # IPA/app extraction and class-dump
-│       │   ├── find-api-calls.sh    # API endpoint discovery
-│       │   ├── deep-secret-scan.sh  # Cloud credential scanner
-│       │   ├── reversing-analyze.sh # Binary reversing with r2/Ghidra
-│       │   ├── detect-sdks.sh       # SDK fingerprinting
-│       │   ├── detect-protections.sh# Protection detection
-│       │   └── ghidra/              # Ghidra headless Java scripts
-│       │       ├── DecompileAllFunctions.java
-│       │       ├── FindSecrets.java
-│       │       ├── ExportAPICalls.java
-│       │       ├── ExportCryptoUsage.java
-│       │       └── ExportStringXrefs.java
-│       └── references/
-│           ├── setup-guide.md       # Tool installation guide
-│           ├── class-dump-usage.md  # ipsw class-dump reference
-│           ├── api-extraction-patterns.md
-│           ├── call-flow-analysis.md
-│           ├── cloud-secrets-patterns.md
-│           ├── reversing-tools-guide.md
-│           ├── sdk-fingerprinting.md
-│           └── anti-tampering-patterns.md
-├── LICENSE                          # Unlicense (public domain)
-└── README.md
+## Dependencies
+
+Required for the basic workflow:
+
+```bash
+python3
+unzip
+file
+strings
+nm
+otool
 ```
 
-## Use Cases
+Strongly recommended:
 
-- **Security research** — Audit iOS apps for vulnerabilities, leaked credentials, and weak crypto before responsible disclosure
-- **Penetration testing** — Map attack surfaces, identify API endpoints, and assess protections during authorized engagements
-- **CTF competitions** — Quickly extract and analyze iOS challenge binaries
-- **Competitive analysis** — Understand how other apps are built, what SDKs they use, and how they structure their APIs
-- **Compliance auditing** — Verify that apps meet security standards (ATS, cert pinning, keychain usage, data encryption)
-- **Incident response** — Rapidly assess a suspicious IPA for malicious behavior, data exfiltration, or embedded malware
+```bash
+brew install blacktop/tap/ipsw
+pip install lief
+r2pm -ci r2frida
+```
+
+Optional but useful:
+
+```bash
+radare2
+rizin
+Ghidra headless
+swift-demangle
+class-dump / classdump-dyld
+```
+
+On Linux/WSL2, basic static analysis works for already extracted files. macOS gives better results because `otool`, `nm`, `codesign`, `plutil`, `swift-demangle`, and `ipsw` are easier to use together.
+
+## Main command
+
+Use the new command:
+
+```text
+/analyze-ipa-symbols /path/to/Instagram.ipa
+```
+
+or run the script directly:
+
+```bash
+bash skills/ios-reverse-engineering/scripts/radan-symbol-architect.sh /path/to/Instagram.ipa -o ./radan-out
+```
+
+Add target patterns:
+
+```bash
+bash skills/ios-reverse-engineering/scripts/radan-symbol-architect.sh /path/to/Instagram.ipa \
+  -o ./radan-out \
+  --pattern _IGMobileConfigBooleanValueForInternalUse \
+  --pattern _MCIMobileConfigGetBoolean \
+  --pattern openWithConfig:onViewController:userSession:
+```
+
+## Output contract
+
+A valid run should produce a directory with this shape:
+
+```text
+radan-out/
+├── 00_inventory.md
+├── binaries.txt
+├── targets.txt
+├── main/
+│   ├── 01_macho_segments.json
+│   ├── 02_symbols_exports_imports.json
+│   ├── 03_objc_sections.json
+│   ├── 04_swift_demangled_symbols.txt
+│   ├── 05_selectors_selrefs.json
+│   ├── 06_strings_by_section.json
+│   ├── 07_target_matches.md
+│   └── raw/
+│       ├── file.txt
+│       ├── nm.txt
+│       ├── otool_headers.txt
+│       ├── otool_load_commands.txt
+│       ├── strings.txt
+│       └── ipsw_class_dump.txt
+└── frameworks/
+    └── <FrameworkName>/
+        └── same report structure...
+```
+
+Every symbol-level claim should include as many of these fields as the tooling can verify:
+
+```text
+binary
+architecture
+symbol/selector/string
+segment
+section
+vmaddr
+fileoff
+first_8_bytes
+first_16_bytes
+source_tool
+confidence
+```
+
+## Rules for RyukGram / Instagram work
+
+When the target is Instagram, RyukGram, MobileConfig, Dogfooding, Direct Notes, QuickSnap, Homecoming, Prism, or LiquidGlass:
+
+1. Prefer evidence over guesses.
+2. Never invent a feature name from a hash/token.
+3. Treat `DoNotUseOrMock` and broad MobileConfig/EasyGating overrides as risky.
+4. Prefer pass-through observation and per-value overrides.
+5. Always separate:
+   - static binary evidence;
+   - runtime observation;
+   - manual labels;
+   - inferred labels;
+   - unverified hypotheses.
+6. For patch candidates, always report first bytes and file offset before suggesting a stub.
+7. For hooks, always report the class/selector/symbol owner and whether it is ObjC, Swift, C, or unknown.
+
+## Recommended tool stack
+
+- `blacktop/ipsw` for class-dump, Mach-O search/disassembly and iOS research automation.
+- `LIEF` for repeatable Mach-O parsing, symbol/section metadata and future patch tooling.
+- `ktool` for portable Python Mach-O/ObjC metadata extraction.
+- `r2frida` for runtime validation on device.
+- Ghidra headless for deeper cross-reference and decompiler output when the static CLI result is not enough.
+
+## Current state
+
+This fork has been repointed from a broad iOS security skill into a symbol-architecture skill. The inherited broad scripts remain in place for compatibility, but the intended workflow is now `/analyze-ipa-symbols` and `radan-symbol-architect.sh`.
 
 ## License
 
-This project is released into the public domain under the [Unlicense](https://unlicense.org). See [LICENSE](LICENSE) for details.
+Same license as the upstream fork unless changed explicitly.
