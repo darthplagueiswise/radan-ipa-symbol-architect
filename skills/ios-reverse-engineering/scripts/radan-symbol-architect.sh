@@ -54,6 +54,7 @@ done
 if [[ -z "$OUT" ]]; then OUT="./radan-analysis-$(date +%Y%m%d-%H%M%S)"; fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY_ANALYZER="$SCRIPT_DIR/macho_symbol_architect.py"
+GAP_REPORTER="$SCRIPT_DIR/radan_feature_gap_report.py"
 [[ -f "$PY_ANALYZER" ]] || die "missing analyzer: $PY_ANALYZER"
 
 mkdir -p "$OUT"
@@ -62,6 +63,7 @@ OUT="$(cd "$OUT" && pwd)"
 DEFAULT_TARGETS="$OUT/default-ryukgram-targets.txt"
 cat > "$DEFAULT_TARGETS" <<'EOF'
 _IGMobileConfigBooleanValueForInternalUse
+_IGMobileConfigSessionlessBooleanValueForInternalUse
 _IGMobileConfigForceUpdateConfigs
 _IGMobileConfigSetConfigOverrides
 _IGMobileConfigTryUpdateConfigsWithCompletion
@@ -94,6 +96,37 @@ IGDogfoodingSettingsSelectionViewController
 IGDirectNotesDogfoodingSettings
 IGQuickSnapExperimentationHelper
 IGNotesTrayController
+isQuicksnapEnabled:
+isQuicksnapEnabledInInbox:
+isQuicksnapEnabledAsPeek:
+isQPEnabled:
+_isEligibleForQuicksnapCornerStackTransitionDialog
+IGDirectNotesExperimentHelper
+IGDirectMutualInterestFeatureGatingService
+ig_ios_quick_snap
+ig_ios_quicksnap
+ig_ios_instants
+ig_quick_snap_show_peek_in_view_did_appear
+ig_instants_hide
+ig_test_sessioned_mc_ig_notes_friend_map_enabled
+ig_friend_map_location_update
+ig_ios_friend_map
+ig_ios_friendmap
+ig_ios_friends_map
+ig_ios_friend_lane
+ig_ios_notes_icebreakers
+ctd_in_thread_icebreakers_ios_mc
+biig_icebreaker_completeness_upsell_mc
+igd_ios_default_icebreakers_in_faq_settings
+ig_default_icebreaker_appointment
+ig_ios_stories_tray
+ig_ios_story_tray
+ig_story_tray
+ig_ios_stories_in_view_nav_tray
+ig_empty_story_tray_su_redesign
+dm_inline_like
+direct_inline_like
+inline_like
 _METAIsLiquidGlassEnabled
 _IGTabBarStyleForLauncherSet
 IGLiquidGlassInteractiveTabBar
@@ -203,6 +236,12 @@ if [[ "$SCAN_FRAMEWORKS" -eq 1 ]]; then
   done < "$BINARIES"
 fi
 
+if [[ -f "$GAP_REPORTER" ]]; then
+  python3 "$GAP_REPORTER" --report-root "$OUT" || true
+else
+  echo "[radan] warning: missing cross-binary reporter: $GAP_REPORTER" >&2
+fi
+
 {
   echo "# Radan IPA Symbol Architect Inventory"
   echo
@@ -223,6 +262,14 @@ fi
   echo
   sed 's/^/- `/' "$BINARIES" | sed 's/$/`/'
   echo
+  echo "## Cross-binary feature gaps"
+  echo
+  if [[ -f "$OUT/90_cross_binary_feature_gaps.md" ]]; then
+    sed -n '1,80p' "$OUT/90_cross_binary_feature_gaps.md"
+  else
+    echo "Cross-binary feature gap report was not produced."
+  fi
+  echo
   echo "## Main target matches"
   echo
   if [[ -f "$OUT/main/07_target_matches.md" ]]; then cat "$OUT/main/07_target_matches.md"; else echo "No main target match report was produced."; fi
@@ -233,3 +280,4 @@ echo "[radan] inventory: $OUT/00_inventory.md"
 echo "[radan] binaries:   $OUT/binaries.txt"
 echo "[radan] targets:    $OUT/targets.txt"
 echo "[radan] main hits:  $OUT/main/07_target_matches.md"
+echo "[radan] feature gaps: $OUT/90_cross_binary_feature_gaps.md"
