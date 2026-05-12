@@ -1,0 +1,73 @@
+name: Radan Full IPA Artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipa_path:
+        description: "Path to decrypted IPA or extracted .app inside the repo/workspace"
+        required: true
+        default: "input/ipa/Instagram.decrypted.ipa"
+      max_frameworks:
+        description: "Max frameworks to scan"
+        required: true
+        default: "80"
+      run_ghidra:
+        description: "Run Ghidra headless if GHIDRA_HEADLESS exists on runner"
+        required: true
+        type: boolean
+        default: false
+      ghidra_max_binaries:
+        description: "Max binaries to import into Ghidra if enabled"
+        required: true
+        default: "3"
+
+jobs:
+  analyze:
+    runs-on: macos-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Show input
+        run: |
+          echo "IPA/app input: ${{ inputs.ipa_path }}"
+          echo "Max frameworks: ${{ inputs.max_frameworks }}"
+          echo "Run Ghidra: ${{ inputs.run_ghidra }}"
+          ls -lah input/ipa || true
+
+      - name: Validate input exists
+        run: |
+          test -e "${{ inputs.ipa_path }}" || {
+            echo "Missing input: ${{ inputs.ipa_path }}"
+            echo "Put the decrypted IPA in input/ipa/ locally or track it with Git LFS in a private repo."
+            exit 1
+          }
+
+      - name: Run full Radan artifact
+        run: |
+          extra=""
+          if [ "${{ inputs.run_ghidra }}" = "true" ]; then
+            if [ -n "${GHIDRA_HEADLESS:-}" ] && [ -x "${GHIDRA_HEADLESS:-}" ]; then
+              extra="--ghidra --ghidra-max-binaries ${{ inputs.ghidra_max_binaries }}"
+            else
+              echo "run_ghidra=true but GHIDRA_HEADLESS is not configured on this runner. Continuing without Ghidra."
+            fi
+          fi
+          bash scripts/run_full_ipa_artifact.sh "${{ inputs.ipa_path }}" \
+            --max-frameworks "${{ inputs.max_frameworks }}" \
+            -o artifacts/radan-full-actions \
+            $extra
+
+      - name: Upload full artifact directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: radan-full-ipa-artifact
+          path: |
+            artifacts/radan-full-actions/
+            artifacts/radan-full-actions.decompile-artifact.zip
+          if-no-files-found: error
+          retention-days: 7
