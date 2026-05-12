@@ -1,0 +1,21 @@
+# Radan analysis inputs/outputs
+input/ipa/*.ipa
+input/ipa/*.zip
+input/ipa/*.app
+input/ipa/Payload/
+input/ipa/extracted/
+
+artifacts/
+radan-out/
+radan-analysis-*/
+*.decompile-artifact.zip
+
+# Ghidra local projects can be huge
+*.gpr
+*.rep/
+.ghidra/
+
+# macOS / editor noise
+.DS_Store
+*.swp
+*.tmp
